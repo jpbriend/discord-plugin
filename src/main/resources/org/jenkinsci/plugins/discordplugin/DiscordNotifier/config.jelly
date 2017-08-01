@@ -1,5 +1,5 @@
 <?jelly escape-by-default='true'?>
-<j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define" xmlns:l="/lib/layout" xmlns:t="/lib/hudson" xmlns:f="/lib/form">
+<j:jelly xmlns:j="jelly:core" xmlns:st="jelly:stapler" xmlns:d="jelly:define" xmlns:l="/lib/layout" xmlns:t="/lib/hudson" xmlns:f="/lib/form" xmlns:c="/lib/credentials">
   <!--
     This jelly script is used for per-project configuration.
 
@@ -11,12 +11,15 @@
     When submitted, it will be passed to the corresponding constructor parameter.
   -->
   <f:entry title="Server" field="server">
-    <f:textbox />
+    <f:textbox ${instance.getServer()}/>
   </f:entry>
   <f:entry title="Channel" field="channel">
-    <f:textbox />
+    <f:textbox ${instance.getChannel()}/>
+  </f:entry>
+  <f:entry field="tokenCredentialId" title="tokenCredentialId">
+    <c:select value="${instance.getTokenCredentialId()}"/>
   </f:entry>
   <f:entry title="Token" field="token">
-      <f:textbox />
-    </f:entry>
+    <f:textbox ${instance.getToken()} />
+  </f:entry>
 </j:jelly>
