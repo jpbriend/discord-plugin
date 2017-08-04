@@ -11,15 +11,15 @@
     When submitted, it will be passed to the corresponding constructor parameter.
   -->
   <f:entry title="Server" field="server">
-    <f:textbox ${instance.getServer()}/>
+    <f:textbox value="${instance.getServer()}" />
   </f:entry>
   <f:entry title="Channel" field="channel">
-    <f:textbox ${instance.getChannel()}/>
+    <f:textbox value="${instance.getChannel()}" />
   </f:entry>
   <f:entry field="tokenCredentialId" title="tokenCredentialId">
-    <c:select value="${instance.getTokenCredentialId()}"/>
+    <c:select value="${instance.getTokenCredentialId()}" />
   </f:entry>
   <f:entry title="Token" field="token">
-    <f:textbox ${instance.getToken()} />
+    <f:textbox value="${instance.getToken()}" />
   </f:entry>
 </j:jelly>
