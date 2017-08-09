@@ -1,19 +1,14 @@
 package org.jenkinsci.plugins.discordplugin;
 
-import com.cloudbees.plugins.credentials.Credentials;
 import com.cloudbees.plugins.credentials.CredentialsMatchers;
-import com.cloudbees.plugins.credentials.CredentialsProvider;
-import com.cloudbees.plugins.credentials.common.*;
+import com.cloudbees.plugins.credentials.common.StandardListBoxModel;
+import com.cloudbees.plugins.credentials.common.StandardUsernameListBoxModel;
 import com.cloudbees.plugins.credentials.domains.DomainRequirement;
-import com.cloudbees.plugins.credentials.domains.HostnameRequirement;
-import com.cloudbees.plugins.credentials.domains.URIRequirementBuilder;
 import hudson.Extension;
 import hudson.Launcher;
-import hudson.Util;
 import hudson.model.AbstractBuild;
 import hudson.model.AbstractProject;
 import hudson.model.BuildListener;
-import hudson.model.Item;
 import hudson.security.ACL;
 import hudson.tasks.BuildStepDescriptor;
 import hudson.tasks.BuildStepMonitor;
@@ -22,28 +17,17 @@ import hudson.tasks.Publisher;
 import hudson.util.FormValidation;
 import hudson.util.ListBoxModel;
 import jenkins.model.Jenkins;
-import net.dv8tion.jda.core.AccountType;
-import net.dv8tion.jda.core.EmbedBuilder;
-import net.dv8tion.jda.core.JDA;
-import net.dv8tion.jda.core.JDABuilder;
-import net.dv8tion.jda.core.entities.Guild;
-import net.dv8tion.jda.core.entities.MessageEmbed;
-import net.dv8tion.jda.core.entities.TextChannel;
-import net.dv8tion.jda.core.exceptions.RateLimitedException;
 import net.sf.json.JSONObject;
-import org.apache.commons.lang.StringUtils;
-import org.jenkinsci.plugins.displayurlapi.DisplayURLProvider;
+import org.jenkinsci.plugins.discordplugin.service.DiscordService;
 import org.jenkinsci.plugins.plaincredentials.StringCredentials;
-import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.StaplerRequest;
 
-import javax.security.auth.login.LoginException;
+import javax.annotation.Nonnull;
+import javax.security.auth.login.CredentialNotFoundException;
 import java.io.IOException;
-import java.time.Instant;
 import java.util.Collections;
-import java.util.List;
 import java.util.logging.Logger;
 
 
@@ -51,91 +35,31 @@ public class DiscordNotifier extends Notifier {
 
     private static final Logger logger = Logger.getLogger(DiscordNotifier.class.getName());
 
-    private final String server;
-    private final String channel;
-    private final String token;
+    private String channel;
+    private DiscordService service = DiscordService.getInstance();
 
     @DataBoundConstructor
-    public DiscordNotifier(String server, String channel, String token) {
+    public DiscordNotifier(String channel) {
         super();
-        this.server = server;
         this.channel = channel;
-        this.token = token;
-    }
 
-    public String getServer() {
-        return server;
-    }
-    public String getChannel() {
-        return channel;
-    }
-    public String getToken() {
-        return token;
+        DescriptorImpl descriptor = Jenkins.getInstance().getDescriptorByType(DiscordNotifier.DescriptorImpl.class);
+        this.service.setServer(descriptor.getDiscordServer());
+        this.service.setTokenCredentialId(descriptor.getDiscordTokenCredentialId());
     }
 
     @Override
     public boolean perform(AbstractBuild<?,?> build, Launcher launcher, BuildListener listener) throws InterruptedException, IOException {
-        String jenkinsURL = Jenkins.getInstance().getRootUrl();
-        try {
-            JDA jda = new JDABuilder(AccountType.BOT).setToken(token).buildBlocking();
-
-            List<Guild> guilds = jda.getGuildsByName(server, true);
-            Guild guild = guilds.get(0);
-
-            List<TextChannel> channels = guild.getTextChannelsByName(channel, true);
-            TextChannel outputChannel = channels.get(0);
-
-            EmbedBuilder builder = new EmbedBuilder();
-            builder
-                    .setTitle(((AbstractBuild)build).getProject().getFullDisplayName()+" - "+build.getDisplayName())
-                    .setColor(build.getResult().color.getBaseColor())
-                    .setDescription(build.getParent().getDescription())
-                    .addField("Status", build.getResult().toString(), true);
-            if (null != jenkinsURL) {
-                builder.addField("", "[Logs](" + Jenkins.getInstance().getRootUrl() + build.getUrl() + "console)", true);
-            }
-            builder
-                    .addField("Duration", Util.getTimeSpanString(System.currentTimeMillis()-build.getStartTimeInMillis()), false)
-                    .setTimestamp(Instant.now());
-            MessageEmbed message = builder.build();
-
-            outputChannel.sendMessage(message).queue(response->listener.getLogger().println("Notification sent to Discord server on channel " + channel));
-
-        } catch (LoginException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        } catch (RateLimitedException e) {
-            e.printStackTrace();
-        } finally {
-            return true;
-        }
-    }
-
-    public boolean isConnected() throws InterruptedException, LoginException, RateLimitedException {
-        boolean result = false;
-        JDA jda = new JDABuilder(AccountType.BOT).setToken(token).buildBlocking();
-        if (JDA.Status.CONNECTED == jda.getStatus() ) {
-            result = true;
-        }
-        jda.shutdownNow();
-        return result;
-    }
-
-    public boolean isGuildAvailable() throws InterruptedException, LoginException, RateLimitedException {
-        boolean result = false;
-        JDA jda = new JDABuilder(AccountType.BOT).setToken(token).buildBlocking();
-        List<Guild> guilds = jda.getGuildsByName(server, true);
-
-        if (guilds.size() != 0) {
-            Guild guild = guilds.get(0);
-            if (JDA.Status.CONNECTED == jda.getStatus() && guild.isAvailable()) {
-                result = true;
+        if (!this.service.isConnected()) {
+            try {
+                this.service.connect();
+            } catch (CredentialNotFoundException e) {
+                e.printStackTrace();
+                throw new InterruptedException(e.getMessage());
             }
         }
-
-        jda.shutdownNow();
-        return result;
+        this.service.notifyBuild(this.channel, build, listener);
+        return true;
     }
 
     @Override
@@ -151,6 +75,14 @@ public class DiscordNotifier extends Notifier {
     @Override
     public DescriptorImpl getDescriptor() {
         return new DescriptorImpl();
+    }
+
+    public String getChannel() {
+        return channel;
+    }
+
+    public void setChannel(String channel) {
+        this.channel = channel;
     }
 
     @Extension
@@ -197,55 +129,12 @@ public class DiscordNotifier extends Notifier {
             return super.configure(sr, formData);
         }
 
-        @Override
-        public DiscordNotifier newInstance(StaplerRequest sr, JSONObject json) throws FormException {
-            System.out.println("New Instance...");
-            return new DiscordNotifier("test", "test", "test");
-        }
-
         public FormValidation doTestConnection(@QueryParameter("discordServer") String discordServer,
                                                @QueryParameter("discordTokenCredentialId") String discordTokenCredentialId) throws FormException {
-            if (StringUtils.isEmpty(discordServer)) {
-                return FormValidation.error("Discord Server must not be empty");
-            }
-
-            Credentials credentials = CredentialsMatchers.firstOrNull(
-                    CredentialsProvider.lookupCredentials(
-                            StringCredentials.class,
-                            Jenkins.getInstance(),
-                            ACL.SYSTEM,
-                            Collections.<DomainRequirement>emptyList()),
-                    CredentialsMatchers.withId(discordTokenCredentialId)
-            );
-
-            if (null == credentials) {
-                return FormValidation.error("No token provided or cannot find currently selected credentials");
-            }
-
-            DiscordNotifier notifier = new DiscordNotifier(discordServer, "testbot", ((StringCredentials) credentials).getSecret().getPlainText());
-
-            try {
-                if ( !notifier.isConnected()) {
-                    return FormValidation.error("Could not connect to Discord. Check your connectivity or credentials ?");
-                }
-                if (!notifier.isGuildAvailable()) {
-                    return FormValidation.error("Connection to Discord is OK but could not join Server " + discordServer);
-                } else {
-                    return FormValidation.ok("Connection successful");
-                }
-            } catch (LoginException e) {
-                e.printStackTrace();
-                return FormValidation.error("Failure: \n" + e.getMessage());
-            } catch (InterruptedException e) {
-                e.printStackTrace();
-                return FormValidation.error("Failure: \n" + e.getMessage());
-            } catch (RateLimitedException e) {
-                e.printStackTrace();
-                return FormValidation.error("Failure: \n" + e.getMessage());
-            }
+            return FormValidation.ok("Connection successful");
         }
 
-        @Override
+        @Nonnull
         public String getDisplayName() {
             return "Discord Notifications";
         }
